@@ -1,0 +1,586 @@
+---
+title: "Capstone Project"
+author: "Loan Portfolio Prediction Team"
+date: "2023-10-16"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE,  warning=FALSE}
+library(readr)
+library("tidyverse")
+library("skimr")
+library("readxl") # used to read excel files
+library("dplyr") # used for data munging 
+library("FNN") # used for knn regression (knn.reg function)
+library("caret") # used for various predictive models
+library("class") # for using confusion matrix function
+library("rpart.plot") # used to plot decision tree
+library("rpart")  # used for Regression tree
+library("glmnet") # used for Lasso and Ridge regression
+library('NeuralNetTools') # used to plot Neural Networks
+library("PRROC") # top plot ROC curve
+library("ROCR") # top plot lift curve
+library("C50")
+library("kableExtra")
+library("formattable")
+library("reticulate")
+library(tm) #For text mining functionality
+library(SnowballC) #For collapsing words to common roots
+library(wordcloud) #For creating word cloud visualization
+library(RColorBrewer) #For creating colorful graphs using pre-defined palettes
+library(caTools) #For splitting the data  
+library(ranger) # used to random forest
+library(randomForest) # used to random forest
+library(quanteda) #to get ngrams without using RWeka
+library(corrplot)
+library("FNN") # used for knn regression (knn.reg function)
+library("class") # for using confusion matrix function
+library("glmnet") # used for Lasso and Ridge regression
+library('NeuralNetTools') # used to plot Neural Networks
+library("tidyverse")
+library("skimr")
+library(randomForest)
+library(readxl)
+library(rpart)
+library(DMwR)
+library(ROSE)
+library(DMwR)
+library(pROC)
+library(ROSE)  # for dataset balancing
+
+```
+
+
+#cleaning the train data set
+```{r}
+# Load the necessary library
+#library(readxl)
+
+# Specify the file path and sheet name
+file_path <- "C:/Users/MY00002/Documents/NYU/Course/Capstone/Data/data/Project Data observed in 2 years -1016.xlsx"
+sheet_name <- "data 56355(1st)"
+
+# Read the specified sheet and let read_excel infer the column types
+whole_data <- read_excel(path = file_path, sheet = sheet_name)
+
+# Exclude the first column, item column
+whole_data <- select(whole_data, -1)
+
+# Convert each column to factor explicitly
+whole_data[] <- lapply(whole_data, as.factor)
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(whole_data, class)
+print(attribute_classes)
+
+```
+
+```{r}
+# Count the number of NA values in each column
+
+na_count <- sapply(whole_data, function(x) sum(is.na(x)))
+
+# Print the count of NA values for each column
+print(na_count)
+
+# Apply the table function to each column of the data frame
+table_list <- lapply(whole_data, table)
+
+# Print the table of each column
+for (i in seq_along(table_list)) {
+  cat("Table for column:", names(table_list)[i], "\n")
+  print(table_list[[i]])
+  cat("\n")
+}
+
+
+```
+
+
+```{r}
+library(dplyr)
+
+whole_data <- whole_data %>%
+  mutate(target_variable = ifelse(`survival year` == "Normal case", 0, 1))
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(whole_data, class)
+print(attribute_classes)
+table(whole_data$target_variable)
+
+```
+```{r}
+# Data pre-processing
+# Select only the change variables and the response variable
+predictor_columns  <- c(
+  "G_total_limit",
+  "G_risk_grade",
+  "G_trade_bureau_cnt",
+  "G_period_employment",
+  "G_house_status",
+  "G_net_income",
+  "G_race",
+  "G_enquiry_cnt"
+)
+
+model_data <- whole_data %>%
+  select(predictor_columns , target_variable ) %>%
+  na.omit()
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(model_data, class)
+print(attribute_classes)
+
+table(model_data$target_variable)
+```
+
+```{r}
+# Split the whole data into training and test sets (80% train, 20% test)
+
+# Load caret library
+library(caret)
+
+# Check distribution of target_variable
+table(model_data$target_variable)
+
+# If distribution seems okay, manually split the data
+set.seed(12345)
+
+# Create a randomized index for splitting
+index <- sample(seq_len(nrow(model_data)), size = 0.80 * nrow(model_data))
+
+train_data <- model_data[index, ]
+test_data <- model_data[-index, ]
+
+table(train_data$target_variable)
+table(test_data$target_variable)
+```
+
+#Task2.You will use the predictive modeling process we learnt in the class to land on a final binary classification model to use. 
+#a. Start by building a model using only the previous time period’s change variables
+
+# 1-0. glm_0, Logistic Regression Model building, threshold=0.5
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+
+# Define a function to print model performance statistics
+print_model_statistics <- function(confusion_matrix) {
+  overall_stats <- confusion_matrix[["overall"]]
+  classwise_stats <- confusion_matrix[["byClass"]]
+  
+  cat("Accuracy :", round(overall_stats[["Accuracy"]], 3), "\n")
+  cat("Precision:", round(classwise_stats[["Precision"]], 3), "\n")
+  cat("Recall   :", round(classwise_stats[["Recall"]], 3), "\n")
+  
+  # Calculate F1 score
+  precision <- classwise_stats[["Precision"]]
+  recall <- classwise_stats[["Recall"]]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  cat("F1 Score :", round(f1_score, 3), "\n")
+}
+
+# Train the logistic regression model
+glm_0 <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+# Make probability predictions on the test set
+glm_0_prob_predictions <- predict(glm_0, newdata = test_data, type = "response")
+
+# Define threshold_0
+threshold_0 <- 0.5
+
+# Convert probabilities to class labels based on the threshold_0
+glm_0_predictions <- ifelse(glm_0_prob_predictions >= threshold_0, 1, 0)
+
+# Prepare actual responses and predictions for evaluation
+test_data$target_variable <- as.factor(test_data$target_variable)
+glm_0_predictions <- as.factor(glm_0_predictions)
+levels(glm_0_predictions) <- levels(test_data$target_variable)
+
+# Evaluate the model and print the confusion matrix
+glm_0_confusion_matrix <- confusionMatrix(glm_0_predictions, test_data$target_variable)
+print(glm_0_confusion_matrix)
+
+# Print model statistics
+cat("Model Statistics for glm_0 with Threshold =", threshold_0, ":\n")
+print_model_statistics(glm_0_confusion_matrix)
+
+# ROC and AUC
+actual_responses <- as.numeric(as.character(test_data$target_variable)) - 1  # Convert factors to numeric binary (0 and 1)
+roc_obj_0 <- roc(actual_responses, glm_0_prob_predictions)
+cat("AUC for glm_0:", auc(roc_obj_0), "\n")
+
+# Plot the ROC curve
+plot(roc_obj_0, main=paste("ROC Curve for glm_0 (Threshold =", threshold_0, ")"))
+```
+
+# 1-1. glm_1, Logistic Regression Model building, threshold=0.1
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+
+# Define a function to print model performance statistics
+print_model_statistics <- function(confusion_matrix) {
+  overall_stats <- confusion_matrix[["overall"]]
+  classwise_stats <- confusion_matrix[["byClass"]]
+  
+  cat("Accuracy :", round(overall_stats[["Accuracy"]], 3), "\n")
+  cat("Precision:", round(classwise_stats[["Precision"]], 3), "\n")
+  cat("Recall   :", round(classwise_stats[["Recall"]], 3), "\n")
+  
+  # Calculate F1 score
+  precision <- classwise_stats[["Precision"]]
+  recall <- classwise_stats[["Recall"]]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  cat("F1 Score :", round(f1_score, 3), "\n")
+}
+
+# Train the logistic regression model
+glm_1 <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+# Make probability predictions on the test set
+glm_1_prob_predictions <- predict(glm_1, newdata = test_data, type = "response")
+
+# Define a new threshold
+threshold_1 <- 0.1  # changing the threshold to 0.1
+
+# Convert probabilities to class labels based on the new threshold
+glm_1_predictions <- ifelse(glm_1_prob_predictions >= threshold_1, 1, 0)
+
+# Prepare actual responses and predictions for evaluation
+test_data$target_variable <- as.factor(test_data$target_variable)
+glm_1_predictions <- as.factor(glm_1_predictions)
+levels(glm_1_predictions) <- levels(test_data$target_variable)
+
+# Evaluate the model and print the confusion matrix
+glm_1_confusion_matrix <- confusionMatrix(glm_1_predictions, test_data$target_variable)
+print(glm_1_confusion_matrix)
+
+# Print model statistics
+cat("Model Statistics for glm_1 with Threshold =", threshold_1, ":\n")
+print_model_statistics(glm_1_confusion_matrix)
+
+# ROC and AUC
+actual_responses <- as.numeric(as.character(test_data$target_variable)) - 1  # Convert factors to numeric binary (0 and 1)
+roc_obj_1 <- roc(actual_responses, glm_1_prob_predictions)
+cat("AUC for glm_1:", auc(roc_obj_1), "\n")
+
+# Plot the ROC curve
+plot(roc_obj_1, main=paste("ROC Curve for glm_1 (Threshold =", threshold_1, ")"))
+```
+# 1.2 glm_2, Logistic Regression Model buildind
+# Before training, the dataset is resampled using the ovun.sample function from the ROSE package, creating a balanced training set.
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+library(ROSE)
+
+# Prepare the training data
+train_data$target_variable <- as.factor(train_data$target_variable)
+
+# Balance the dataset using ovun.sample
+set.seed(1234)  # for reproducibility
+balanced_data <- ovun.sample(target_variable ~ ., data = train_data, method = "both", N = 2000)$data  # Adjust N as needed based on the size of your data
+
+# Train the logistic regression model on the balanced dataset
+glm_2 <- glm(target_variable ~ ., data = balanced_data, family = "binomial")
+
+# Make probability predictions on the test set
+glm_2_prob_predictions <- predict(glm_2, newdata = test_data, type = "response")
+
+# Define your threshold
+threshold_2 <- 0.5  # you might want to adjust this based on your requirements
+
+# Convert probabilities to class labels based on the threshold
+glm_2_predictions <- ifelse(glm_2_prob_predictions >= threshold_2, 1, 0)
+
+# Prepare actual responses and predictions for evaluation
+test_data$target_variable <- as.factor(test_data$target_variable)
+glm_2_predictions <- as.factor(glm_2_predictions)
+levels(glm_2_predictions) <- levels(test_data$target_variable)
+
+# Evaluate the model and print the confusion matrix
+glm_2_confusion_matrix <- confusionMatrix(glm_2_predictions, test_data$target_variable)
+print(glm_2_confusion_matrix)
+
+# Function to print model statistics, assuming it's already defined as in previous snippets
+cat("Model Statistics for glm_2 with Threshold =", threshold_2, ":\n")
+print_model_statistics(glm_2_confusion_matrix)
+
+# ROC and AUC
+actual_responses <- as.numeric(as.character(test_data$target_variable)) - 1  # Convert factors to numeric binary (0 and 1)
+roc_obj_2 <- roc(actual_responses, glm_2_prob_predictions)
+cat("AUC for glm_2:", auc(roc_obj_2), "\n")
+
+# Plot the ROC curve
+plot(roc_obj_2, main=paste("ROC Curve for glm_2 (Threshold =", threshold_2, ")"))
+
+
+```
+
+# 1.3 glm_3, Logistic Regression Model buildind 
+# determine the optimal threshold based on maximizing the sum of sensitivity and specificity.
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+
+# Define a function to print model performance statistics
+print_model_statistics <- function(confusion_matrix) {
+  overall_stats <- confusion_matrix[["overall"]]
+  classwise_stats <- confusion_matrix[["byClass"]]
+  
+  cat("Accuracy :", round(overall_stats[["Accuracy"]], 3), "\n")
+  cat("Precision:", round(classwise_stats[["Precision"]], 3), "\n")
+  cat("Recall   :", round(classwise_stats[["Recall"]], 3), "\n")
+  
+  # Calculate F1 score
+  precision <- classwise_stats[["Precision"]]
+  recall <- classwise_stats[["Recall"]]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  cat("F1 Score :", round(f1_score, 3), "\n")
+}
+
+# Train the logistic regression model
+glm_3 <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+# Make probability predictions on the test set
+glm_3_prob_predictions <- predict(glm_3, newdata = test_data, type = "response")
+
+# ROC and AUC
+actual_responses <- as.numeric(as.character(test_data$target_variable)) - 1  # Convert factors to numeric binary (0 and 1)
+roc_obj_3 <- roc(actual_responses, glm_3_prob_predictions)
+
+# Find the thresholds and the one that maximizes sensitivity + specificity
+coords_obj_3 <- coords(roc_obj_3, "best", best.method = "youden", ret = c("threshold", "sensitivity", "specificity"))
+optimal_threshold_3 <- coords_obj_3["threshold"]
+
+# Ensure that optimal_threshold_3 is a single numeric value and not a list or any other complex structure
+optimal_threshold_3 <- as.numeric(optimal_threshold_3)
+cat("Optimal Threshold:", optimal_threshold_3, "\n")
+
+# Simplify the structure of glm_3_prob_predictions to a plain numeric vector without any names or other attributes
+glm_3_prob_predictions <- unname(glm_3_prob_predictions)
+
+# Convert probabilities to class labels based on the optimal threshold
+glm_3_predictions <- ifelse(glm_3_prob_predictions >= optimal_threshold_3, 1, 0)
+
+# Prepare actual responses and predictions for evaluation
+test_data$target_variable <- as.factor(test_data$target_variable)
+glm_3_predictions <- as.factor(glm_3_predictions)
+levels(glm_3_predictions) <- levels(test_data$target_variable)
+
+# Evaluate the model and print the confusion matrix
+glm_3_confusion_matrix <- confusionMatrix(glm_3_predictions, test_data$target_variable)
+print(glm_3_confusion_matrix)
+
+# Print model statistics
+cat("Model Statistics for glm_3 with Optimal Threshold =", optimal_threshold_3, ":\n")
+print_model_statistics(glm_3_confusion_matrix)
+
+cat("AUC for glm_3:", auc(roc_obj_3), "\n")
+
+# Plot the ROC curve
+plot(roc_obj_3, main=paste("ROC Curve for glm_3 (Optimal Threshold =", optimal_threshold_3, ")"))
+
+
+```
+
+
+## 1.4 glm_4, improved Logistic Regression Model buildind, "Uses SMOTE for balancing, optimizes threshold by maximizing sensitivity + specificity" 
+```{r}
+# Load necessary libraries
+library(caret)
+library(pROC)
+library(DMwR) # For SMOTE
+
+# Define a function to print model performance statistics
+print_model_statistics <- function(confusion_matrix) {
+  overall_stats <- confusion_matrix[["overall"]]
+  classwise_stats <- confusion_matrix[["byClass"]]
+  
+  cat("Accuracy :", round(overall_stats[["Accuracy"]], 3), "\n")
+  cat("Precision:", round(classwise_stats[["Precision"]], 3), "\n")
+  cat("Recall   :", round(classwise_stats[["Recall"]], 3), "\n")
+  
+  # Calculate F1 score
+  precision <- classwise_stats[["Precision"]]
+  recall <- classwise_stats[["Recall"]]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  cat("F1 Score :", round(f1_score, 3), "\n")
+}
+
+# Balancing the dataset with SMOTE
+set.seed(12345)  # For reproducibility of results
+balanced_data <- SMOTE(target_variable ~ ., train_data, perc.over = 100, k = 5, perc.under = 200)
+
+# Train the logistic regression model on the balanced data
+glm_4 <- glm(target_variable ~ ., data = balanced_data, family = "binomial")
+
+# Make probability predictions on the test set
+glm_4_prob_predictions <- predict(glm_4, newdata = test_data, type = "response")
+
+# ROC and AUC
+actual_responses <- as.numeric(as.character(test_data$target_variable)) - 1  # Convert factors to numeric binary (0 and 1)
+roc_obj_4 <- roc(actual_responses, glm_4_prob_predictions)
+
+# Find the thresholds and the one that maximizes sensitivity + specificity
+coords_obj_4 <- coords(roc_obj_4, "best", best.method = "youden", ret = c("threshold", "sensitivity", "specificity"))
+optimal_threshold_4 <- coords_obj_4["threshold"]
+
+# Ensure that optimal_threshold_4 is a single numeric value and not a list or any other complex structure
+optimal_threshold_4 <- as.numeric(optimal_threshold_4)
+cat("Optimal Threshold:", optimal_threshold_4, "\n")
+
+# Simplify the structure of glm_4_prob_predictions to a plain numeric vector without any names or other attributes
+glm_4_prob_predictions <- unname(glm_4_prob_predictions)
+
+# Convert probabilities to class labels based on the optimal threshold
+glm_4_predictions <- ifelse(glm_4_prob_predictions >= optimal_threshold_4, 1, 0)
+
+# Prepare actual responses and predictions for evaluation
+test_data$target_variable <- as.factor(test_data$target_variable)
+glm_4_predictions <- as.factor(glm_4_predictions)
+levels(glm_4_predictions) <- levels(test_data$target_variable)
+
+# Evaluate the model and print the confusion matrix
+glm_4_confusion_matrix <- confusionMatrix(glm_4_predictions, test_data$target_variable)
+print(glm_4_confusion_matrix)
+
+# Print model statistics
+cat("Model Statistics for glm_4 with Optimal Threshold =", optimal_threshold_4, ":\n")
+print_model_statistics(glm_4_confusion_matrix)
+
+cat("AUC for glm_4:", auc(roc_obj_4), "\n")
+
+# Plot the ROC curve
+plot(roc_obj_4, main=paste("ROC Curve for glm_4 (Optimal Threshold =", optimal_threshold_4, ")"))
+
+```
+
+```{r}
+library(caret)
+library(DMwR) # for SMOTE
+
+# Prepare the training data
+train_data <- na.omit(train_data)
+
+# Convert character columns to factors
+train_data <- data.frame(lapply(train_data, function(x) {
+    if(is.character(x)) {
+        return(as.factor(x))
+    } else {
+        return(x)
+    }
+}))
+
+# Ensure target_variable is a factor
+train_data$target_variable <- as.factor(train_data$target_variable)
+
+# Check and print the original distribution of the target variable
+print(table(train_data$target_variable))
+
+set.seed(1)
+# Perform SMOTE and balance the training data
+train_data_balanced <- SMOTE(target_variable ~ ., train_data, perc.over = 100, k = 5) # Adjust perc.over and k as needed
+
+# Check and print the distribution of the target variable after SMOTE
+print(table(train_data_balanced$target_variable))
+
+# Train the logistic regression model
+glm_4 <- glm(target_variable ~ ., data = train_data_balanced, family = "binomial")
+
+# Make predictions on the test set
+glm_4_prob_predictions <- predict(glm_4, newdata = test_data, type = "response")
+
+# Create a ROC curve and calculate AUC
+pred_obj <- prediction(glm_4_prob_predictions, test_data$target_variable)
+roc_obj_4 <- performance(pred_obj, measure = "tpr", x.measure = "fpr")
+auc_obj_4 <- performance(pred_obj, measure = "auc")
+auc_glm_4 <- as.numeric(auc_obj_4@y.values)
+
+# Plot ROC curve
+plot(roc_obj_4, main = paste("ROC Curve - AUC =", round(auc, 3)), col = "blue", lwd = 2)
+abline(a = 0, b = 1, lty = 2, col = "red")
+
+# Find the optimal threshold
+perf_obj <- performance(pred_obj, "sens", "spec")
+opt_index <- which.max(rowSums(data.frame(sensitivity = unlist(perf_obj@y.values), specificity = unlist(perf_obj@x.values))))
+opt_threshold <- perf_obj@alpha.values[[1]][opt_index]
+cat("Optimal Threshold:", opt_threshold, "\n")
+
+# Use the optimal threshold to make class predictions
+glm_4_predictions <- ifelse(glm_4_prob_predictions >= opt_threshold, 1, 0)
+glm_4_predictions <- as.factor(glm_4_predictions)
+levels(glm_4_predictions) <- levels(test_data$target_variable)
+
+# Create a confusion matrix
+glm_4_confusion_matrix <- confusionMatrix(glm_4_predictions, test_data$target_variable)
+print(glm_4_confusion_matrix)
+
+# Extract performance metrics
+overall_stats <- glm_4_confusion_matrix[["overall"]]
+classwise_stats <- glm_4_confusion_matrix[["byClass"]]
+
+# Calculate and print performance metrics
+precision <- classwise_stats[["Precision"]]
+recall <- classwise_stats[["Recall"]]
+f1_score <- 2 * (precision * recall) / (precision + recall)
+cat("Accuracy :", round(overall_stats[["Accuracy"]], 3), "\n")
+cat("Precision:", round(precision, 3), "\n")
+cat("Recall   :", round(recall, 3), "\n")
+cat("F1 Score :", round(f1_score, 3), "\n")
+cat("AUC      :", round(auc, 3), "\n")
+```
+
+#Performace comparison each model
+```{r}
+# Extract statistics from confusion matrix and ROC object
+get_model_stats <- function(conf_matrix, roc_obj) {
+  overall_stats <- conf_matrix[["overall"]]
+  class_stats <- conf_matrix[["byClass"]]
+  auc_value <- auc(roc_obj)
+  
+  accuracy <- overall_stats["Accuracy"]
+  precision <- class_stats["Precision"]
+  recall <- class_stats["Sensitivity"]  # Sensitivity is the same as Recall
+  specificity <- class_stats["Specificity"]
+  f1_score <- 2 * (precision * recall) / (precision + recall)
+  sum_sens_spec <- recall + specificity
+  
+  return(c(accuracy, precision, recall, f1_score, sum_sens_spec, auc_value))
+}
+
+# Assuming threshold values are numeric
+threshold_0 <- 0.5
+threshold_1 <- 0.1
+# Extract numeric values from the 'optimal_threshold' if they are not simple numeric values
+optimal_threshold_3_value <- optimal_threshold_3  # Extract the actual value if it's in a complex structure
+optimal_threshold_4_value <- optimal_threshold_4  # Extract the actual value if it's in a complex structure
+
+# Get statistics for each model
+glm_0_stats <- c("glm_0", "threshold=0.5", threshold_0, get_model_stats(glm_0_confusion_matrix, roc_obj_0))
+glm_1_stats <- c("glm_1", "threshold=0.1", threshold_1, get_model_stats(glm_1_confusion_matrix, roc_obj_1))
+glm_2_stats <- c("glm_2", "Resampled with ROSE", threshold_2, get_model_stats(glm_2_confusion_matrix, roc_obj_2))
+glm_3_stats <- c("glm_3", "Maximized Sensitivity and Specificity", optimal_threshold_3_value, get_model_stats(glm_3_confusion_matrix, roc_obj_3))
+glm_4_stats <- c("glm_4", "SMOTE, Maximized Sensitivity and Specificity", optimal_threshold_4_value, get_model_stats(glm_4_confusion_matrix, roc_obj_4))
+
+# Combine into a matrix
+model_metrics <- rbind(glm_0_stats, glm_1_stats, glm_2_stats, glm_3_stats, glm_4_stats)
+
+colnames(model_metrics) <- c("Model", "Description", "Threshold", "Accuracy", "Precision", "Recall", "F1 Score", "Sum of Sensitivity and Specificity", "AUC")
+
+print(model_metrics)
+
+
+```
+
+

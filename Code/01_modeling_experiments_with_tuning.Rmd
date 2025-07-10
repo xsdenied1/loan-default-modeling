@@ -1,0 +1,554 @@
+---
+title: "Capstone Project"
+author: "Loan Portfolio Prediction Team"
+date: "2023-10-04"
+output: html_document
+---
+
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r message=FALSE,  warning=FALSE}
+library(readr)
+library("tidyverse")
+library("skimr")
+library("readxl") # used to read excel files
+library("dplyr") # used for data munging 
+library("FNN") # used for knn regression (knn.reg function)
+library("caret") # used for various predictive models
+library("class") # for using confusion matrix function
+library("rpart.plot") # used to plot decision tree
+library("rpart")  # used for Regression tree
+library("glmnet") # used for Lasso and Ridge regression
+library('NeuralNetTools') # used to plot Neural Networks
+library("PRROC") # top plot ROC curve
+library("ROCR") # top plot lift curve
+library("C50")
+library("kableExtra")
+library("formattable")
+library("reticulate")
+library(tm) #For text mining functionality
+library(SnowballC) #For collapsing words to common roots
+library(wordcloud) #For creating word cloud visualization
+library(RColorBrewer) #For creating colorful graphs using pre-defined palettes
+library(caTools) #For splitting the data  
+library(ranger) # used to random forest
+library(randomForest) # used to random forest
+library(quanteda) #to get ngrams without using RWeka
+library(corrplot)
+library("FNN") # used for knn regression (knn.reg function)
+library("class") # for using confusion matrix function
+library("glmnet") # used for Lasso and Ridge regression
+library('NeuralNetTools') # used to plot Neural Networks
+library("tidyverse")
+library("skimr")
+library(randomForest)
+library(readxl)
+library(rpart)
+library(DMwR)
+library(ROSE)
+
+```
+
+
+#cleaning the train data set
+```{r}
+# Load the necessary library
+#library(readxl)
+
+# Specify the file path and sheet name
+file_path <- "Project Data observed in 2 years -1004.xlsx"
+sheet_name <- "data 25993"
+
+# Read the specified sheet and let read_excel infer the column types
+whole_data <- read_excel(path = file_path, sheet = sheet_name)
+
+# Exclude the first column, item column
+whole_data <- select(whole_data, -1)
+
+# Convert each column to factor explicitly
+whole_data[] <- lapply(whole_data, as.factor)
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(whole_data, class)
+print(attribute_classes)
+
+```
+
+```{r}
+# Count the number of NA values in each column
+
+na_count <- sapply(whole_data, function(x) sum(is.na(x)))
+
+# Print the count of NA values for each column
+print(na_count)
+
+# Apply the table function to each column of the data frame
+table_list <- lapply(whole_data, table)
+
+# Print the table of each column
+for (i in seq_along(table_list)) {
+  cat("Table for column:", names(table_list)[i], "\n")
+  print(table_list[[i]])
+  cat("\n")
+}
+
+table_list
+
+```
+
+
+```{r}
+library(dplyr)
+
+whole_data <- whole_data %>%
+  mutate(target_variable = ifelse(`survial year` == "Normal case", 0, 1))
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(whole_data, class)
+print(attribute_classes)
+table(whole_data$target_variable)
+
+```
+```{r}
+# Data pre-processing
+# Select only the change variables and the response variable
+predictor_columns  <- c(
+  "G_total_limit",
+  "G_risk_grade",
+  "G_trade_bureau_cnt",
+  "G_period_employment",
+  "G_house_status",
+  "G_net_income",
+  "G_race",
+  "G_enquiry_cnt"
+)
+
+model_data <- whole_data %>%
+  select(predictor_columns , target_variable ) %>%
+  na.omit()
+
+# Check the classes of each column to confirm
+attribute_classes <- sapply(model_data, class)
+print(attribute_classes)
+
+table(model_data$target_variable)
+```
+
+```{r}
+# Split the whole data into training and test sets (80% train, 20% test)
+
+# Load caret library
+library(caret)
+
+# Check distribution of target_variable
+table(model_data$target_variable)
+
+# If distribution seems okay, manually split the data
+set.seed(123)
+
+# Create a randomized index for splitting
+index <- sample(seq_len(nrow(model_data)), size = 0.80 * nrow(model_data))
+
+train_data <- model_data[index, ]
+test_data <- model_data[-index, ]
+
+table(train_data$target_variable)
+table(test_data$target_variable)
+```
+
+#Task2.You will use the predictive modeling process we learnt in the class to land on a final binary classification model to use. 
+#a. Start by building a model using only the previous time period’s change variables
+
+# 1. Logistic Regression Model building, threshold=0.5
+```{r}
+
+logistic_regression_model <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+#summary(logistic_regression_model)
+
+# Make predictions on the test set
+logistic_regression_prob_predictions <- predict(logistic_regression_model, newdata = test_data, type = "response")
+
+
+# Use the optimal threshold to convert probabilities to class labels
+logistic_regression_predictions <- ifelse(logistic_regression_prob_predictions >= 0.5, 1, 0)
+
+test_data$target_variable <- as.factor(test_data$target_variable)
+
+# Convert the numeric predictions to factor
+logistic_regression_predictions <- as.factor(logistic_regression_predictions)
+
+#levels(test_data$target_variable)
+#print(test_data$target_variable)
+
+levels(logistic_regression_predictions) <- levels(test_data$target_variable)
+
+# Model evaluation 
+logistic_regression_confusion_matrix <- confusionMatrix(logistic_regression_predictions, test_data$target_variable)
+print(logistic_regression_confusion_matrix)
+
+# Extract and print overall statistics and class-wise statistics
+overall_stats_logistic_regression <- logistic_regression_confusion_matrix[["overall"]]
+classwise_stats_logistic_regression <- logistic_regression_confusion_matrix[["byClass"]]
+
+cat("Accuracy for Logistic Regression:", round(overall_stats_logistic_regression[["Accuracy"]], 3), "\n")
+cat("Precision for Logistic Regression:", round(classwise_stats_logistic_regression[["Precision"]], 3), "\n")
+cat("Recall for Logistic Regression:", round(classwise_stats_logistic_regression[["Recall"]], 3), "\n")
+
+# Calculate F1 score
+precision_logistic_regression <- classwise_stats_logistic_regression[["Precision"]]
+recall_logistic_regression <- classwise_stats_logistic_regression[["Recall"]]
+f1_score_logistic_regression <- 2 * (precision_logistic_regression * recall_logistic_regression) / (precision_logistic_regression + recall_logistic_regression)
+
+cat("F1 Score for Logistic Regression:", round(f1_score_logistic_regression, 3), "\n")
+
+table(train_data$G_net_income)
+table(test_data$G_net_income)
+```
+
+```{r}
+
+# Here is the code I wrote (Mingi)
+
+
+library(dplyr)
+library(caret)
+
+# Apply transformation to the train data set
+train_data <- train_data %>%
+  mutate(G_net_income = case_when(
+    row_number() == 1 & G_net_income == "N < 1,000" ~ "N < 1,000", # Leave the first observation unchanged
+    G_net_income == "N < 1,000" ~ "1,000 =< N <1.500", # Change the rest of the observations
+    G_net_income == "1,000 =< N <1.500" ~ "1,500 =< N < 2,000",
+    G_net_income == "1,500 =< N < 2,000" ~ "2,000 =< N",
+    TRUE ~ G_net_income # Default case
+  ))
+
+table(train_data$G_net_income) # Check the changes in train_data$G_net_income
+
+test_data <- test_data %>%
+  mutate(G_net_income = case_when(
+    row_number() == 1 & G_net_income == "N < 1,000" ~ "N < 1,000",
+    G_net_income == "N < 1,000" ~ "1,000 =< N <1.500",
+    G_net_income == "1,000 =< N <1.500" ~ "1,500 =< N < 2,000",
+    G_net_income == "1,500 =< N < 2,000" ~ "2,000 =< N",
+    TRUE ~ G_net_income # Default case
+  ))
+table(test_data$G_net_income) # Check the changes in test_data$G_net_income
+
+# Train the logistic regression model with modified data
+logistic_regression_model_counterfactual <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+# Make predictions on the test set with the counterfactual model
+logistic_regression_prob_predictions_counterfactual <- predict(logistic_regression_model_counterfactual, newdata = test_data, type = "response")
+
+# Use the optimal threshold to convert probabilities to class labels
+logistic_regression_predictions_counterfactual <- ifelse(logistic_regression_prob_predictions_counterfactual >= 0.5, 1, 0)
+
+test_data$target_variable <- as.factor(test_data$target_variable)
+
+# Convert the numeric predictions to factor
+logistic_regression_predictions_counterfactual <- as.factor(logistic_regression_predictions_counterfactual)
+
+levels(logistic_regression_predictions_counterfactual) <- levels(test_data$target_variable)
+
+# Model evaluation for the counterfactual model
+logistic_regression_confusion_matrix_counterfactual <- confusionMatrix(logistic_regression_predictions_counterfactual, test_data$target_variable)
+print(logistic_regression_confusion_matrix_counterfactual)
+
+# Extract and print overall statistics and class-wise statistics for the counterfactual model
+overall_stats_logistic_regression_counterfactual <- logistic_regression_confusion_matrix_counterfactual[["overall"]]
+classwise_stats_logistic_regression_counterfactual <- logistic_regression_confusion_matrix_counterfactual[["byClass"]]
+
+cat("Accuracy for Logistic Regression (Counterfactual):", round(overall_stats_logistic_regression_counterfactual[["Accuracy"]], 3), "\n")
+cat("Precision for Logistic Regression (Counterfactual):", round(classwise_stats_logistic_regression_counterfactual[["Precision"]], 3), "\n")
+cat("Recall for Logistic Regression (Counterfactual):", round(classwise_stats_logistic_regression_counterfactual[["Recall"]], 3), "\n")
+
+# Calculate F1 score for the counterfactual model
+precision_logistic_regression_counterfactual <- classwise_stats_logistic_regression_counterfactual[["Precision"]]
+recall_logistic_regression_counterfactual <- classwise_stats_logistic_regression_counterfactual[["Recall"]]
+f1_score_logistic_regression_counterfactual <- 2 * (precision_logistic_regression_counterfactual * recall_logistic_regression_counterfactual) / (precision_logistic_regression_counterfactual + recall_logistic_regression_counterfactual)
+
+cat("F1 Score for Logistic Regression (Counterfactual):", round(f1_score_logistic_regression_counterfactual, 3), "\n")
+
+
+
+```
+
+
+
+```{r}
+
+
+
+# Clean and preprocess the train data set
+# Assuming you have already loaded libraries and read the data
+
+# Modify the "G_net_income" variable
+library(dplyr)
+
+train_data <- train_data %>%
+  mutate(G_net_income = case_when(
+    row_number() == 1 & G_net_income == "N < 1,000" ~ "N < 1,000", # Leave the first observation unchanged
+    G_net_income == "N < 1,000" ~ "1,000 =< N < 1,500", # Change the rest of the observations
+    G_net_income == "1,000 =< N < 1,500" ~ "1,500 =< N < 2,000",
+    G_net_income == "1,500 =< N < 2,000" ~ "2,000 =< N",
+    TRUE ~ G_net_income # Leaves other values unchanged
+  ))
+
+
+
+# Train the logistic regression model with the modified data
+logistic_regression_model_counterfactual <- glm(target_variable ~ ., data = train_data, family = "binomial")
+
+# Update factor levels in test_data to match training data
+test_data$G_net_income <- factor(test_data$G_net_income, levels = levels(train_data$G_net_income))
+
+# Make predictions on the test set with the modified model
+logistic_regression_prob_predictions_counterfactual <- predict(logistic_regression_model_counterfactual, newdata = test_data, type = "response")
+
+
+# Use the optimal threshold to convert probabilities to class labels
+logistic_regression_predictions_counterfactual <- ifelse(logistic_regression_prob_predictions_counterfactual >= 0.5, 1, 0)
+
+# Convert the numeric predictions to factor
+logistic_regression_predictions_counterfactual <- as.factor(logistic_regression_predictions_counterfactual)
+
+# Set the levels of the predictions to match the levels of the actual target variable
+levels(logistic_regression_predictions_counterfactual) <- levels(test_data$target_variable)
+
+# Evaluate the performance of the counterfactual model
+logistic_regression_confusion_matrix_counterfactual <- confusionMatrix(logistic_regression_predictions_counterfactual, test_data$target_variable)
+print(logistic_regression_confusion_matrix_counterfactual)
+
+# Extract and print overall statistics and class-wise statistics
+overall_stats_logistic_regression_counterfactual <- logistic_regression_confusion_matrix_counterfactual[["overall"]]
+classwise_stats_logistic_regression_counterfactual <- logistic_regression_confusion_matrix_counterfactual[["byClass"]]
+
+cat("Accuracy for Logistic Regression (Counterfactual):", round(overall_stats_logistic_regression_counterfactual[["Accuracy"]], 3), "\n")
+cat("Precision for Logistic Regression (Counterfactual):", round(classwise_stats_logistic_regression_counterfactual[["Precision"]], 3), "\n")
+cat("Recall for Logistic Regression (Counterfactual):", round(classwise_stats_logistic_regression_counterfactual[["Recall"]], 3), "\n")
+
+# Calculate F1 score for the counterfactual model
+precision_logistic_regression_counterfactual <- classwise_stats_logistic_regression_counterfactual[["Precision"]]
+recall_logistic_regression_counterfactual <- classwise_stats_logistic_regression_counterfactual[["Recall"]]
+f1_score_logistic_regression_counterfactual <- 2 * (precision_logistic_regression_counterfactual * recall_logistic_regression_counterfactual) / (precision_logistic_regression_counterfactual + recall_logistic_regression_counterfactual)
+
+cat("F1 Score for Logistic Regression (Counterfactual):", round(f1_score_logistic_regression_counterfactual, 3), "\n")
+
+```
+
+
+
+
+
+
+
+
+
+
+# 2. Decision Tree Model building
+```{r}
+# Train the decision tree model
+tree_model <- rpart(target_variable ~ ., data = train_data, method = "class")
+
+# Make predictions on the test set
+tree_prob_predictions <- predict(tree_model, newdata = test_data, type = "prob")
+
+# The predict function will return a matrix. We'll extract probabilities for the positive class
+positive_probs <- tree_prob_predictions[,2]
+
+# Use a threshold to convert probabilities to class labels
+tree_predictions <- ifelse(positive_probs >= 0.5, 1, 0)
+
+# Convert the numeric predictions to factor
+tree_predictions <- as.factor(tree_predictions)
+test_data$target_variable <- as.factor(test_data$target_variable)
+
+# Match the levels of predictions to the actual target variable
+levels(tree_predictions) <- levels(test_data$target_variable)
+
+# Model evaluation 
+tree_confusion_matrix <- confusionMatrix(tree_predictions, test_data$target_variable)
+print(tree_confusion_matrix)
+
+# Extract and print overall statistics and class-wise statistics
+overall_stats_tree <- tree_confusion_matrix[["overall"]]
+classwise_stats_tree <- tree_confusion_matrix[["byClass"]]
+
+cat("Accuracy for Decision Tree:", round(overall_stats_tree[["Accuracy"]], 3), "\n")
+cat("Precision for Decision Tree:", round(classwise_stats_tree[["Precision"]], 3), "\n")
+cat("Recall for Decision Tree:", round(classwise_stats_tree[["Recall"]], 3), "\n")
+
+# Calculate F1 score for Decision Tree
+precision_tree <- classwise_stats_tree[["Precision"]]
+recall_tree <- classwise_stats_tree[["Recall"]]
+f1_score_tree <- 2 * (precision_tree * recall_tree) / (precision_tree + recall_tree)
+
+cat("F1 Score for Decision Tree:", round(f1_score_tree, 3), "\n")
+
+```
+
+# 3. Random Forest Model building
+```{r}
+# Load required libraries
+library(randomForest)
+library(caret)
+
+# Ensure that the target variable in the training data is a factor
+train_data$target_variable <- as.factor(train_data$target_variable)
+
+# Train a Random Forest model for classification
+rf_model <- randomForest(target_variable ~ ., data=train_data, ntree=100, mtry=3, importance=TRUE)
+
+# Make predictions on the test set
+rf_predictions <- predict(rf_model, newdata=test_data, type="response")
+
+# Ensure that the predictions and test_data target variable are both factors
+rf_predictions <- as.factor(rf_predictions)
+test_data$target_variable <- as.factor(test_data$target_variable)
+
+# Evaluate model predictions using a confusion matrix
+rf_confusion_matrix <- confusionMatrix(rf_predictions, test_data$target_variable)
+print(rf_confusion_matrix)
+
+# Extract and print overall statistics and class-wise statistics
+overall_stats_rf <- rf_confusion_matrix[["overall"]]
+classwise_stats_rf <- rf_confusion_matrix[["byClass"]]
+
+cat("Accuracy for Random Forest:", round(overall_stats_rf[["Accuracy"]], 3), "\n")
+cat("Precision for Random Forest:", round(classwise_stats_rf[["Precision"]], 3), "\n")
+cat("Recall for Random Forest:", round(classwise_stats_rf[["Recall"]], 3), "\n")
+
+# Calculate F1 score
+precision_rf <- classwise_stats_rf[["Precision"]]
+recall_rf <- classwise_stats_rf[["Recall"]]
+f1_score_rf <- 2 * (precision_rf * recall_rf) / (precision_rf + recall_rf)
+cat("F1 Score for Random Forest:", round(f1_score_rf, 3), "\n")
+
+```
+# 4. KNN Model building
+```{r}
+
+# Load necessary libraries
+library(class)
+library(caret)
+
+# Convert target variable to factor for consistency in predictions and evaluation
+train_data$target_variable <- as.factor(train_data$target_variable)
+test_data$target_variable <- as.factor(test_data$target_variable)
+
+#attribute_classes_train_knn <- sapply(train_data, class)
+#print(attribute_classes_train_knn)
+
+#attribute_classes_test_knn <- sapply(test_data, class)
+#print(attribute_classes_test_knn)
+
+# Exclude the target_variable for encoding and split it off into its own vector
+train_labels <- train_data$target_variable
+test_labels <- test_data$target_variable
+
+train_matrix <- model.matrix(~. - 1 - target_variable, data = train_data)
+test_matrix <- model.matrix(~. - 1 - target_variable, data = test_data)
+
+# Run k-NN
+knn_predictions <- knn(train_matrix, test_matrix, cl=train_labels, k=3)
+
+library(caret)
+
+# Ensure the predictions and test_labels are both factors
+knn_predictions <- as.factor(knn_predictions)
+test_labels <- as.factor(test_labels)
+
+# Evaluate model predictions using a confusion matrix
+knn_confusion_matrix <- confusionMatrix(knn_predictions, test_labels)
+print(knn_confusion_matrix)
+
+# Extract and print overall statistics and class-wise statistics
+overall_stats_knn <- knn_confusion_matrix[["overall"]]
+classwise_stats_knn <- knn_confusion_matrix[["byClass"]]
+
+cat("Accuracy for k-NN:", round(overall_stats_knn[["Accuracy"]], 3), "\n")
+cat("Precision for k-NN:", round(classwise_stats_knn[["Precision"]], 3), "\n")
+cat("Recall for k-NN:", round(classwise_stats_knn[["Recall"]], 3), "\n")
+
+# Calculate F1 score
+precision_knn <- classwise_stats_knn[["Precision"]]
+recall_knn <- classwise_stats_knn[["Recall"]]
+f1_score_knn <- 2 * (precision_knn * recall_knn) / (precision_knn + recall_knn)
+cat("F1 Score for k-NN:", round(f1_score_knn, 3), "\n")
+
+```
+
+
+#Performace comparison each model
+```{r}
+library(caret)
+library(pROC) # for AUC calculation
+
+# Create an empty matrix to store model performances
+model_performance <- matrix(0, nrow = 4, ncol = 5)
+rownames(model_performance) <- c("Logistic Regression", "Decision Tree", "Random Forest", "kNN")
+colnames(model_performance) <- c("Accuracy", "Precision", "Recall", "F1 Score", "AUC")
+
+# 1. Logistic Regression
+overall_stats_logistic_regression <- logistic_regression_confusion_matrix[["overall"]]
+classwise_stats_logistic_regression <- logistic_regression_confusion_matrix[["byClass"]]
+
+model_performance["Logistic Regression", ] <- c(
+  overall_stats_logistic_regression[["Accuracy"]],
+  classwise_stats_logistic_regression[["Precision"]],
+  classwise_stats_logistic_regression[["Recall"]],
+  2 * (classwise_stats_logistic_regression[["Precision"]] * classwise_stats_logistic_regression[["Recall"]]) /
+    (classwise_stats_logistic_regression[["Precision"]] + classwise_stats_logistic_regression[["Recall"]]),
+  auc(response = as.numeric(test_data$target_variable), predictor = logistic_regression_prob_predictions)
+)
+
+# 2. Decision Tree
+# You'll need to replace the decisionTree_confusion_matrix with the actual confusion matrix for your Decision Tree Model
+overall_stats_tree <- tree_confusion_matrix[["overall"]]
+classwise_stats_tree <- tree_confusion_matrix[["byClass"]]
+
+
+model_performance["Decision Tree", ] <- c(
+  overall_stats_tree[["Accuracy"]],
+  classwise_stats_tree[["Precision"]],
+  classwise_stats_tree[["Recall"]],
+  classwise_stats_tree[["F1"]],
+  roc(as.numeric(as.factor(test_data$target_variable)), as.numeric(tree_predictions))$auc
+)
+
+# 3. Random Forest
+overall_stats_rf <- rf_confusion_matrix[["overall"]]
+classwise_stats_rf <- rf_confusion_matrix[["byClass"]]
+
+
+model_performance["Random Forest", ] <- c(
+  overall_stats_rf[["Accuracy"]],
+  classwise_stats_rf[["Precision"]],
+  classwise_stats_rf[["Recall"]],
+  f1_score_rf,
+  auc(response = as.numeric(test_data$target_variable), predictor = as.numeric(rf_predictions))
+)
+
+# 4. kNN
+overall_stats_knn <- knn_confusion_matrix[["overall"]]
+classwise_stats_knn <- knn_confusion_matrix[["byClass"]]
+
+
+model_performance["kNN", ] <- c(
+  overall_stats_knn[["Accuracy"]],
+  classwise_stats_knn[["Precision"]],
+  classwise_stats_knn[["Recall"]],
+  2 * (classwise_stats_knn[["Precision"]] * classwise_stats_knn[["Recall"]]) / 
+    (classwise_stats_knn[["Precision"]] + classwise_stats_knn[["Recall"]]),
+  auc(response = as.numeric(test_data$target_variable), predictor = as.numeric(knn_predictions))
+)
+
+# Print the model performance matrix
+print(model_performance)
+```
+
